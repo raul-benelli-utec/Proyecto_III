@@ -116,10 +116,11 @@ ISR (USART_RX_vect)
 {
     received_data = UDR0;
     
-	if( received_data=='\n'){
+	if( received_data!='\n'){
 		cadena[i]=received_data;
 		i++;
 	}else{
+		cadena[i]='\0';
 		enviar_msg(Msg_obj_cath);
 	}
 	
