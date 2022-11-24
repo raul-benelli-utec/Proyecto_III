@@ -41,7 +41,8 @@ char (*mensajes[total_mensajes]);
 //variables 
 char s1=0;
 int estado_actual=0;
-char contador = 1;
+char contador = 1;//
+int tiempo=0;
 char posicion=0;
 int posicion_minima=5;
 int rango_trabajo=20;
@@ -49,11 +50,20 @@ volatile unsigned char received_data;
 volatile int flag = 0;
 unsigned char str[20];
 unsigned char i=0;
+//variables maq mensajes 
+char estadoActual_maq_str=0;
+enum estados_efectores {ESPERA,OBJ_ON,OBJ_FAIL,OBJ_OFF,OBJ_MOV,OBJ_CATCH,OBJ_RELEASED,EFECT_ON,CAPTURA_OBJ,EFECT_RESTART,total_estados};
+enum estados_comandos {ADQUIR_STR,EV_COMANDO,ACTUALIZAR_VAR};
 
-enum estados {OBJ_ON,OBJ_FAIL,OBJ_OFF,OBJ_MOV,OBJ_CATCH,OBJ_RELEASED,EFECT_ON,CAPTURA_OBJ,EFECT_RESTART,BRAZO_MOV,total_estados};
-	
+//variables maq efectores 
+
+
+void adquirir_str();
+void ev_comando();
+void actualizar_var();
+
 //estados
-
+void Espera();
 void Obj_on();
 void Obj_fail();
 void Obj_off();
@@ -63,7 +73,6 @@ void Obj_released();
 void Efect_on();
 void Captura_obj();
 void Efect_restart();
-void Brazo_mov();
 
 //funciones 
 unsigned char USART_Receive(void);
@@ -78,6 +87,7 @@ void abrir();
 int main(void)
 {
 	void (*vector_estados[total_estados])();
+	vector_estados[ESPERA]=Espera;
 	vector_estados[OBJ_ON]=Obj_on;
 	vector_estados[OBJ_FAIL]=Obj_fail;
 	vector_estados[OBJ_OFF]=Obj_off;
@@ -86,7 +96,6 @@ int main(void)
 	vector_estados[OBJ_RELEASED]=Obj_released;
 	vector_estados[EFECT_ON]=Efect_on;
 	vector_estados[EFECT_RESTART]=Efect_restart;
-	vector_estados[BRAZO_MOV]=Brazo_mov;
 	configuracion_inicial();
 	configuracion_msg();
 	sei();
@@ -203,9 +212,6 @@ void Efect_on(){
 void Efect_restart(){
 	
 	};
-void Brazo_mov(){
-	
-	};
 
 //interrupciones
 ISR (USART_RX_vect)
@@ -236,49 +242,18 @@ ISR (TIMER0_OVF_vect)
 
 }
 
-/*
-char ciclo_trabajo = 30;
-char estado_actual_pwm=0;
-void configurar_pwm();
-void ciclo_alto();
-void ciclo_bajo();
-int contador=0;
-enum estados_pwm {alto,bajo};
 
-int main(void)
-
-{
-
-	configurar_pwm();
-	void (*vector_estados_pwm[2])();
-	vector_estados_pwm[0]=ciclo_alto;
-	vector_estados_pwm[0]=ciclo_bajo;
-	while (1)
-	{
-		vector_estados_pwm[estado_actual_pwm]();
-
-	}
-}
-
-void configurar_pwm(){
-	DDRB = DDRB | (1<<salida_pwm);
-};
-void ciclo_alto(){
-	PORTB = PORTB | (1<<salida_pwm);
-	_delay_ms(1);
-	contador++;
-	if(contador>ciclo_trabajo){
-		estado_actual_pwm=bajo;
-		contador=0;
+//estados maquina mensajes
+void adquirir_str(){
+	if(flag){
+		//quizas sería bueno desactivar las interrupciones cuadno se ejecute esta parte de la funcion
+		int n=0;
+		while( str[n]!='\0'){
+			comando_recibido[n]=str[n];
+			n++;
+		}
+		comando_recibido[n]='\0';
+		flag=0;
+		estadoActual_maq_str=EV_COMANDO;
 	}
 };
-void ciclo_bajo(){
-	PORTB &= ~(1<<salida_pwm);
-	_delay_ms(1);
-	contador++;
-	if(contador>(100-ciclo_trabajo)){
-		estado_actual_pwm=alto;
-		contador=0;
-	}
-};
-*/

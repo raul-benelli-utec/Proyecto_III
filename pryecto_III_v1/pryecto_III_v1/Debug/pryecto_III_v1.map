@@ -45,6 +45,8 @@ Discarded input sections
                 0x00000000        0xc main.o
  .text.comparar_string
                 0x00000000       0x60 main.o
+ .text.cerrar   0x00000000       0x1e main.o
+ .text.abrir    0x00000000       0x2a main.o
  .text.USART_Transmit
                 0x00000000        0xe main.o
  .text.enviar_msg_p_serie
@@ -53,8 +55,6 @@ Discarded input sections
                 0x00000000       0x32 main.o
  .text.Captura_obj
                 0x00000000        0x2 main.o
- .text.cerrar   0x00000000       0x1e main.o
- .text.abrir    0x00000000       0x2a main.o
  .data.rango_trabajo
                 0x00000000        0x2 main.o
  .bss.s1        0x00000000        0x1 main.o
@@ -570,20 +570,20 @@ END GROUP
  .debug_abbrev  0x00000000      0x5a2 C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.7.374/gcc/dev/atmega328p/avr5/crtatmega328p.o
  .debug_abbrev  0x000005a2      0x22f main.o
 
-.debug_line     0x00000000      0x70a
+.debug_line     0x00000000      0x710
  *(.debug_line .debug_line.* .debug_line_end)
  .debug_line    0x00000000      0x134 C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.7.374/gcc/dev/atmega328p/avr5/crtatmega328p.o
- .debug_line    0x00000134      0x5d6 main.o
+ .debug_line    0x00000134      0x5dc main.o
 
 .debug_frame    0x00000000      0x2d4
  *(.debug_frame)
  .debug_frame   0x00000000      0x2d4 main.o
 
-.debug_str      0x00000000      0x69b
+.debug_str      0x00000000      0x6a8
  *(.debug_str)
  .debug_str     0x00000000      0x208 C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.7.374/gcc/dev/atmega328p/avr5/crtatmega328p.o
- .debug_str     0x00000208      0x493 main.o
-                                0x4e9 (size before relaxing)
+ .debug_str     0x00000208      0x4a0 main.o
+                                0x4f6 (size before relaxing)
 
 .debug_loc      0x00000000      0x810
  *(.debug_loc)
