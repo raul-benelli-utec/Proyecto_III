@@ -17,52 +17,69 @@
 //configuration
 void USART_Init(unsigned int ubrr);
 void configuracion_inicial();
-void configuracion_msg();
 #define F_CPU 16000000MH 
-#define s_pres_der PORTB4 
-#define s_pres_izq PORTB5
-#define pwm_servo PORTD6
+#define trigger PORTD0
+#define led PORTD5
+#define buzz PORTD4
+#define sensor_d PORTC0
+#define sensor_i PORTC1
 
-enum mensajes{Msg_at_ok,Msg_at_n,Msg_at_y,Msg_ok_clear,Msg_error,Msg_vacio,total_mensajes};
+//variables
+
+int distancia=0;//mm
+long int t_inicio_obj_on=0;
+int pulso_max=25500;
+int pulso_minimo=500;
+unsigned int contador = 1;//
+long int us=0;
+long int t_eco;
+long int t_obj_on=0;
+long int t_inicio_alarma=0;
+long int t_alarma_on=0;
+char dist_max=20;
+char dist_min=10;
+char actuar=0;
 char cadena[20];
-
-int numero;
 char cadena_descartable[20];
 char comando_recibido[20];
+char medir_distancia=0;
+char enviar_trigger=1;
+char obj_presente;
+char encendido=0;
+char soltar_obj=0;
+char estado_previo=0;
 
-char msg_at_ok[]="AT+OK";
-char msg_at_n[]="AT+N";
-char msg_at_y[]="AT+Y";
-char msg_ok_clear[]="OK_CLEAR";
-char msg_abb_vacio[]="EMPTY_ABB";
-char msg_error[]="ERROR";
-char (*mensajes[total_mensajes]);
-
-//variables 
-char s1=0;
-int estado_actual=0;
-char contador = 1;//
-int tiempo=0;
-char posicion=0;
-int posicion_minima=5;
-int rango_trabajo=20;
 volatile unsigned char received_data;
 volatile int flag = 0;
 unsigned char str[20];
 unsigned char i=0;
-//variables maq mensajes 
+
+//variables maq efectores
 char estadoActual_maq_str=0;
-enum estados_efectores {ESPERA,OBJ_ON,OBJ_FAIL,OBJ_OFF,OBJ_MOV,OBJ_CATCH,OBJ_RELEASED,EFECT_ON,CAPTURA_OBJ,EFECT_RESTART,total_estados};
-enum estados_comandos {ADQUIR_STR,EV_COMANDO,ACTUALIZAR_VAR};
+enum estados_pinza {ESPERA,OBJ_ON,OBJ_FAIL,OBJ_OFF,OBJ_MOV,OBJ_CATCH,OBJ_RELEASED,EFECT_ON,CAPTURA_OBJ,EFECT_RESTART,total_estados_pinza};
+enum estados_comandos {ADQUIR_STR,CONF_AT,EV_COMANDO,COM_ON,COM_OBJ,COM_STATE,COM_FORCE,FORZ_ALARMA,total_estados_comandos};
+	
+//variables maq mensajes
+enum msg{Msg_obj_on,Msg_obj_fail,Msg_obj_off,Msg_obj_mov,Msg_obj_catch,Msg_obj_released,Msg_efect_on,Msg_efect_restart,Msg_ok_on,Msg_ok_off,total_mensajes};
+char* mensajes[total_mensajes];
+char msg_obj_on[]="OBJ_ON";
+char msg_obj_fail[]="OBJ_FAIL";
+char msg_obj_off[]="OBJ_OFF";
+char msg_obj_mov[]="OBJ_MOV";
+char msg_obj_catch[]="OBJ_CATCH";
+char msg_obj_released[]="OBJ_RELEASED";
+char msg_efect_on[]="EFECT_ON";
+char msg_efect_restart[]="EFECT_RESTART";
+char msg_ok_on[]="Ok_ON";
+char msg_ok_off[]="OK_OFF";
 
-//variables maq efectores 
+char estado_actual_pinza=ESPERA;
+char estado_actual_comandos=ADQUIR_STR;
+void sensor_distancia();
+int detectar_objeto();
+void actualizar_t_obj();
 
-
-void adquirir_str();
-void ev_comando();
-void actualizar_var();
-
-//estados
+//estados_pinza
 void Espera();
 void Obj_on();
 void Obj_fail();
@@ -74,6 +91,15 @@ void Efect_on();
 void Captura_obj();
 void Efect_restart();
 
+//estados_comandos
+void adquirir_str();
+void conf_at();
+void ev_comando();
+void com_on();
+void com_obj();
+void com_state();
+void com_force();
+void forz_alarma();
 //funciones 
 unsigned char USART_Receive(void);
 void USART_Transmit(unsigned char data);
@@ -86,41 +112,284 @@ void abrir();
 
 int main(void)
 {
-	void (*vector_estados[total_estados])();
-	vector_estados[ESPERA]=Espera;
-	vector_estados[OBJ_ON]=Obj_on;
-	vector_estados[OBJ_FAIL]=Obj_fail;
-	vector_estados[OBJ_OFF]=Obj_off;
-	vector_estados[OBJ_MOV]=Obj_mov;
-	vector_estados[OBJ_CATCH]=Obj_cath;
-	vector_estados[OBJ_RELEASED]=Obj_released;
-	vector_estados[EFECT_ON]=Efect_on;
-	vector_estados[EFECT_RESTART]=Efect_restart;
+	mensajes[Msg_obj_on]=msg_obj_on;
+	mensajes[Msg_obj_off]=msg_obj_off;
+	mensajes[Msg_obj_catch]=msg_obj_catch;
+	mensajes[Msg_obj_mov]=msg_obj_mov;
+	mensajes[Msg_obj_fail]=msg_obj_fail;
+	mensajes[Msg_obj_released]=msg_obj_released;
+	mensajes[Msg_efect_on]=msg_efect_on;
+	mensajes[Msg_efect_restart]=msg_efect_restart;
+	mensajes[Msg_ok_on]=msg_ok_on;
+	mensajes[Msg_ok_off]=msg_ok_off;
+	void (*vector_estados_comandos[total_estados_comandos])();
+	vector_estados_comandos[ADQUIR_STR]=adquirir_str;
+	vector_estados_comandos[CONF_AT]=conf_at;
+	vector_estados_comandos[EV_COMANDO]=ev_comando;
+	vector_estados_comandos[FORZ_ALARMA]=forz_alarma;
+
+	void (*vector_estados_pinza[total_estados_pinza])();
+	vector_estados_pinza[ESPERA]=Espera;
+	vector_estados_pinza[OBJ_ON]=Obj_on;
+	vector_estados_pinza[OBJ_FAIL]=Obj_fail;
+	vector_estados_pinza[OBJ_OFF]=Obj_off;
+	vector_estados_pinza[OBJ_MOV]=Obj_mov;
+	vector_estados_pinza[OBJ_CATCH]=Obj_cath;
+	vector_estados_pinza[OBJ_RELEASED]=Obj_released;
+	vector_estados_pinza[EFECT_ON]=Efect_on;
+	vector_estados_pinza[EFECT_RESTART]=Efect_restart;
+	vector_estados_pinza[CAPTURA_OBJ]=Captura_obj;
+	
 	configuracion_inicial();
-	configuracion_msg();
+	enviar_texto("a");
 	sei();
+	
     /* Replace with your application code */
     while (1) 
     {
-		vector_estados[estado_actual]();
+		vector_estados_pinza[estado_actual_pinza]();
+		vector_estados_comandos[estado_actual_comandos]();
+		
     }
 }
 
+
+//Estados
+
+
+void Espera(){
+	if ((dist_min<distancia) & (distancia<dist_max) & (!obj_presente))
+	{
+		estado_actual_pinza=OBJ_ON;
+		t_inicio_obj_on=us;
+		obj_presente=1;
+		enviar_msg_p_serie(Msg_obj_on);
+	}
+}
+
+void Obj_on(){
+	if (distancia>dist_max)
+	{
+		obj_presente=0;
+		estado_actual_pinza=ESPERA;//o fail no sé
+		enviar_msg_p_serie(Msg_efect_restart);
+	}else
+	{
+		actualizar_t_obj();
+	}
+	if (obj_presente & (4001000>t_obj_on) & (t_obj_on>4000000))
+	{
+		PORTD=PORTD & (1<<buzz);
+	}
+	if (obj_presente & (5001000>t_obj_on) & (t_obj_on>5000000))
+	{
+		PORTD=PORTD & ~ (1<<buzz);
+	}
+	if (obj_presente & (t_obj_on>9000000))
+	{
+		estado_actual_pinza=CAPTURA_OBJ;
+	}
+};
+void Obj_fail(){
+	};
+void Obj_off(){
+	estado_actual_pinza=OBJ_OFF;
+	abrir();
+	if (OCR1A==pulso_minimo)
+	{
+		enviar_msg_p_serie(Msg_obj_released);
+		
+		estado_actual_pinza=OBJ_RELEASED;
+	}
+	};
+void Obj_mov(){
+	if (soltar_obj)
+	{
+		estado_actual_pinza=OBJ_OFF;
+	}
+	};
+void Obj_cath(){
+	estado_actual_pinza=OBJ_MOV;
+	enviar_msg_p_serie(Msg_obj_mov);
+	};
+void Captura_obj(){
+	if (distancia>dist_max)
+	{
+		obj_presente=0;
+		enviar_msg_p_serie(Msg_obj_fail);
+		estado_actual_pinza=OBJ_FAIL;
+	}else if (detectar_objeto())
+	{
+		enviar_msg_p_serie(Msg_obj_catch);
+		estado_actual_pinza=OBJ_CATCH;
+	}else{
+		if (actuar>11)
+		{
+			estado_actual_pinza=OBJ_FAIL
+		}else{
+			cerrar();
+		}
+	}
+	};
+void Obj_released(){
+	
+	if (distancia>dist_max)
+	{
+		enviar_msg_p_serie(Msg_obj_off);
+		t_obj_on=us;
+		estado_actual_pinza=EFECT_RESTART;
+	}
+	};
+void Efect_on(){
+	
+	};
+void Efect_restart(){
+	actualizar_t_obj();
+		if (t_obj_on>3000000)
+		{
+			estado_actual_pinza=ESPERA;
+		}
+	};
+
+//estados maquina mensajes
+void adquirir_str(){
+	if(flag){
+		//quizas sería bueno desactivar las interrupciones cuadno se ejecute esta parte de la funcion
+		int n=0;
+		while( str[n]!='\0'){
+			comando_recibido[n]=str[n];
+			n++;
+		}
+		comando_recibido[n]='\0';
+		flag=0;
+		estadoActual_maq_str=CONF_AT;
+	}
+}
+
+void conf_at(){
+	if (comparar_str("AT",comando_recibido,0)){
+		estado_actual_comandos=EV_COMANDO;
+		}else{
+		enviar_msg_p_serie("El comando no es valido");
+		estado_actual_comandos=ADQUIR_STR;
+	}
+}
+void ev_comando(){
+	if (comparar_str("$ON=",comando_recibido,2)){
+		estado_actual_comandos=COM_ON;
+	}else if (comparar_str("$OBJ=?",comando_recibido,2))
+	{
+		estado_actual_comandos=COM_OBJ;
+	}else if (comparar_str("$STATE=?",comando_recibido,2))
+	{
+		estado_actual_comandos=COM_STATE;
+	}else if (comparar_str("$FORCE=",comando_recibido,2))
+	{
+		estado_actual_comandos=COM_FORCE;
+	}else{
+		enviar_msg_p_serie("El comando no es valido");
+		estado_actual_comandos=ADQUIR_STR;
+	}
+}
+void com_on(){
+	if (comparar_str("1",comando_recibido,6)){
+		encendido=1;
+	}else if (comparar_str("0",comando_recibido,6))
+	{
+		encendido=0;
+	}else{
+	enviar_msg_p_serie("El comando no es valido");
+	}
+	estado_actual_comandos=ADQUIR_STR;
+}
+void com_obj(){
+	if (obj_presente)
+	{
+		enviar_msg_p_serie("1");
+	}else{
+		enviar_msg_p_serie("0");
+	}
+	estado_actual_comandos=ADQUIR_STR;
+}
+void com_state(){
+	if (obj_presente)
+	{
+		if (estado_actual_pinza==EFECT_RESTART)
+		{
+			enviar_msg_p_serie("3");
+		}else{
+			if (t_obj_on>4000000)
+			{
+				enviar_msg_p_serie("2");
+			}else{
+				enviar_msg_p_serie("1");
+			}
+		}
+	}else{
+		enviar_msg_p_serie("0");
+	}
+}
+void com_force(){
+	if (comparar_str("1",comando_recibido,9))
+	{
+		if (!detectar_objeto() | actuar >11)
+		{
+			cerrar();
+		}else{
+			estado_actual_comandos=ADQUIR_STR;
+		}
+	}else if (comparar_str("2",comando_recibido,9))
+	{
+		soltar_obj=1;
+		estado_actual_comandos=ADQUIR_STR;
+	}else if (comparar_str("3",comando_recibido,9))
+	{
+		estado_actual_comandos=FORZ_ALARMA;
+		t_inicio_alarma=us;
+	}
+}
+void forz_alarma(){
+	actualizar_t_alarma_on();
+	if(t_alarma_on<2000000){
+		PORTD=PORTD & (1<<buzz);
+	}else{
+		PORTD=PORTD & ~ (1<<buzz);
+		estado_actual_comandos=ADQUIR_STR;
+	}
+	
+}
 //configuracion
 void configuracion_inicial(){
+	//fast pwm
+	DDRB |= ( 1<< PORTB1 );  // Configuramos el PB1 como salida.
+	TCNT1 = 0; // Reiniciamos el contador inicial
+	ICR1 = 42999; // Configuramos el periodo de la señal TOP
+
+	TCCR1A =  (1 << COM1A1) | (0 << COM1A0) ; // Ponemos a 'bajo' el OCR1A cuando coincida el Compare Match
+	TCCR1A |=  (1 << WGM11) | (0 << WGM10) ; // Fast PWM: TOP: ICR1
+	TCCR1B = (1 << WGM13) | (1 << WGM12); // // Fast PWM: TOP: ICR1
+	TCCR1B |= (0 << CS12) | (1 << CS11) | ( 0 << CS10 ); // Preesc = 8
+
+	OCR1A = 500; // ancho del pulso
+	
 	USART_Init(MYUBRR);
-	//configuracion sensores presión-entradas
-	DDRB = DDRB | (1<<s_pres_der) | (1<<s_pres_izq);
-	//configuracion pwm servo- 
-	posicion=posicion_minima;
-	DDRD = DDRD & ~(1<<pwm_servo);
+	//configuracion sensores presión-entradas e interrupcion en pd2
+	DDRC = DDRC &~ (1<<sensor_d) &~ (1<<sensor_i);
+	DDRD = DDRD &~ (1<<PORTD2);
+	//configuracion  trigger, led y buzzer
+	PORTD = PORTD | (1<<led);
+	PORTD = PORTD | (1<<buzz);
+	DDRD = DDRD | (1<<trigger);
+	
 	//configuracion timer 0
 	TCCR0A = 0;
 	TCCR0B = 0b00000010;
-	TCNT0=0b00111010;
+	//TCNT0=0b00111010; //100us
+	TCNT0=237;//10us
 	TIMSK0= 0b00000001;
-	
-	};
+	EICRA=0b00000010;//interrupcion 0 en falling
+	EIMSK=0b00000001;//habilita interrupcion 0
+};
 void USART_Init(unsigned int ubrr)
 {
 	/*Set baud rate */
@@ -131,30 +400,62 @@ void USART_Init(unsigned int ubrr)
 	/* Set frame format: 8data, 2stop bit */
 	UCSR0C |= (3<<UCSZ00);
 }
-void configuracion_msg(){
-	mensajes[Msg_at_ok]=msg_at_ok;
-	mensajes[Msg_at_n]=msg_at_n;
-	mensajes[Msg_at_y]=msg_at_y;
-	mensajes[Msg_ok_clear]=msg_ok_clear;
-	mensajes[Msg_error]=msg_error;
-	mensajes[Msg_vacio]=msg_abb_vacio;
-};
+
 //Funciones
+void abrir(){
+	if (OCR1A>pulso_minimo & !(actuar%10)){
+		OCR1A--;
+		actuar=0;
+	}
+	actuar++;
+}
 void cerrar(){
-	if (posicion>posicion_minima){
-		posicion--;
+	if(OCR1A<pulso_max & !(actuar%10)){
+		OCR1A++;
+		actuar=0;
+	}
+	actuar++;
+}
+void sensor_distancia(){
+	if (medir_distancia)
+	{
+		t_eco=us-t_eco;
+		if (t_eco<0)
+		{t_eco=+20000000000;
+		}
+		distancia=0.1715*t_eco;
+		medir_distancia=0;
+	}
+	if (enviar_trigger)
+	{
+		PORTD=PORTD & (1<<trigger);
+		t_eco=us;
+		enviar_trigger=0;
+		}else{
+		PORTD=PORTD & ~(1<<trigger);
 	}
 }
-void abrir(){
-	if(posicion<posicion_minima+rango_trabajo){
-		posicion++;
+int detectar_objeto(){
+	return (PINC & ((1<<sensor_d) | (1<<sensor_i)));
+}
+void actualizar_t_obj(){
+	t_obj_on=us-t_inicio_obj_on;
+	if (t_obj_on<0)
+	{
+		t_obj_on=+20000000000;
+	}
+}
+void actualizar_t_alarma_on(){
+	t_alarma_on=us-t_inicio_alarma;
+	if (t_alarma_on<0)
+	{
+		t_alarma_on=+20000000000;
 	}
 }
 unsigned char USART_Receive(void)
 {
 	/* Wait for data to be received */
-	while (!(UCSR0A & (1<<RXC0)))
-	;
+	while (!(UCSR0A & (1<<RXC0)));
 	/* Get and return received data from buffer */
 	return UDR0;
 }
@@ -168,92 +469,52 @@ void USART_Transmit(unsigned char data)
 	UDR0 = data;
 }
 void enviar_msg_p_serie(int mensaje){
+	cli();
 	int i=0;
 	while(mensajes[mensaje][i]!='\0'){
 		USART_Transmit(mensajes[mensaje][i]);
 		i++;
 	}
 	USART_Transmit('\n');
-	};
+	sei();
+};
 void enviar_texto(char text[]){
+	cli();
 	int n=0;
 	while(text[n]!='\0'){
 		USART_Transmit(text[n]);
 		n++;
 	};
 	USART_Transmit('\n');
+	sei();
 };
-
-//Estados
-void Obj_on(){
-	
-	};
-void Obj_fail(){
-	
-	};
-void Obj_off(){
-	
-	};
-void Obj_mov(){
-	
-	};
-void Obj_cath(){
-	
-	};
-void Captura_obj(){
-	
-	};
-void Obj_released(){
-	
-	};
-void Efect_on(){
-	
-	};
-void Efect_restart(){
-	
-	};
 
 //interrupciones
 ISR (USART_RX_vect)
 {
 	received_data = USART_Receive();
-	if(received_data!='\n' && received_data!='\r'){
-		str[i]=received_data;
-		i++;
-		}else{
-		str[i]='\0';
-		i=0;
-		flag = 1;
-	}
-}
-ISR (TIMER0_OVF_vect)
-{
-	TCNT0=0b00111010;//100 us
-	
-	if(contador>posicion){
-		PORTB=PORTB &~(1<<pwm_servo);
-		}else{
-		PORTB=PORTB |(1<<pwm_servo);
-	}
-	contador++;
-	if(contador>=200){
-		contador=1;
-	};
-
-}
-
-
-//estados maquina mensajes
-void adquirir_str(){
-	if(flag){
-		//quizas sería bueno desactivar las interrupciones cuadno se ejecute esta parte de la funcion
-		int n=0;
-		while( str[n]!='\0'){
-			comando_recibido[n]=str[n];
-			n++;
+	if (((received_data<='z') && (received_data>='$')) || (received_data=='\n'))
+	{
+		if(received_data!='\n'){// && received_data!='\r'
+			str[i]=received_data;
+			i++;
+			}else{
+			str[i]='\0';
+			i=0;
+			flag = 1;
 		}
-		comando_recibido[n]='\0';
-		flag=0;
-		estadoActual_maq_str=EV_COMANDO;
+	}
+}
+ISR (TIMER0_OVF_vect)//10us
+{
+	TCNT0=239;
+	us+=10;
+	if (us>20000000000){
+		us=0;
 	}
 };
+ISR (INT0_vect){
+	medir_distancia=1;
+	enviar_trigger=1;
+	sensor_distancia();
+}
