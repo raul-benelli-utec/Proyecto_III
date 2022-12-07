@@ -84,5 +84,17 @@ char comparar_string(char referencia[], char cadena_rec[]) {
 	}
 	return valido;
 };
-
+char comparar_str(char referencia[], char entrada[], char inicio){
+	int i = 0;
+	char valido = 1;
+	
+	while (referencia[i] != '\0') {
+		//if (!comparar_letra(referencia[i], entrada[inicio+i])) {
+		if (referencia[i] != entrada[inicio+i]) {
+			valido = 0;
+		}
+		i++;
+	}
+	return valido;
+}
 #endif

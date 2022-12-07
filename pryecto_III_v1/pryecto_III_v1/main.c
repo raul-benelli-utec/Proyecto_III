@@ -18,7 +18,7 @@
 void USART_Init(unsigned int ubrr);
 void configuracion_inicial();
 #define F_CPU 16000000MH 
-#define trigger PORTD0
+#define trigger PORTD6
 #define led PORTD5
 #define buzz PORTD4
 #define sensor_d PORTC0
@@ -39,15 +39,12 @@ long int t_alarma_on=0;
 char dist_max=20;
 char dist_min=10;
 char actuar=0;
-char cadena[20];
-char cadena_descartable[20];
 char comando_recibido[20];
 char medir_distancia=0;
 char enviar_trigger=1;
-char obj_presente;
+char obj_presente=0;
 char encendido=0;
 char soltar_obj=0;
-char estado_previo=0;
 
 volatile unsigned char received_data;
 volatile int flag = 0;
@@ -108,8 +105,6 @@ void enviar_texto(char text[]);
 void cerrar();
 void abrir();
 
-
-
 int main(void)
 {
 	mensajes[Msg_obj_on]=msg_obj_on;
@@ -141,21 +136,17 @@ int main(void)
 	vector_estados_pinza[CAPTURA_OBJ]=Captura_obj;
 	
 	configuracion_inicial();
-	enviar_texto("a");
 	sei();
 	
     /* Replace with your application code */
     while (1) 
     {
 		vector_estados_pinza[estado_actual_pinza]();
-		vector_estados_comandos[estado_actual_comandos]();
-		
+		vector_estados_comandos[estado_actual_comandos]();	
     }
 }
 
-
 //Estados
-
 
 void Espera(){
 	if ((dist_min<distancia) & (distancia<dist_max) & (!obj_presente))
@@ -166,7 +157,6 @@ void Espera(){
 		enviar_msg_p_serie(Msg_obj_on);
 	}
 }
-
 void Obj_on(){
 	if (distancia>dist_max)
 	{
@@ -185,20 +175,22 @@ void Obj_on(){
 	{
 		PORTD=PORTD & ~ (1<<buzz);
 	}
-	if (obj_presente & (t_obj_on>9000000))
+	if (obj_presente & (t_obj_on>9000000) & encendido)
 	{
 		estado_actual_pinza=CAPTURA_OBJ;
 	}
 };
 void Obj_fail(){
+	enviar_msg_p_serie(Msg_obj_fail);
+	estado_actual_pinza=ESPERA;
 	};
+	
 void Obj_off(){
 	estado_actual_pinza=OBJ_OFF;
 	abrir();
 	if (OCR1A==pulso_minimo)
 	{
 		enviar_msg_p_serie(Msg_obj_released);
-		
 		estado_actual_pinza=OBJ_RELEASED;
 	}
 	};
@@ -216,7 +208,6 @@ void Captura_obj(){
 	if (distancia>dist_max)
 	{
 		obj_presente=0;
-		enviar_msg_p_serie(Msg_obj_fail);
 		estado_actual_pinza=OBJ_FAIL;
 	}else if (detectar_objeto())
 	{
@@ -225,14 +216,13 @@ void Captura_obj(){
 	}else{
 		if (actuar>11)
 		{
-			estado_actual_pinza=OBJ_FAIL
+			estado_actual_pinza=OBJ_FAIL;
 		}else{
 			cerrar();
 		}
 	}
 	};
 void Obj_released(){
-	
 	if (distancia>dist_max)
 	{
 		enviar_msg_p_serie(Msg_obj_off);
@@ -355,9 +345,9 @@ void forz_alarma(){
 	}else{
 		PORTD=PORTD & ~ (1<<buzz);
 		estado_actual_comandos=ADQUIR_STR;
-	}
-	
+	}	
 }
+
 //configuracion
 void configuracion_inicial(){
 	//fast pwm
@@ -459,7 +449,6 @@ unsigned char USART_Receive(void)
 	/* Get and return received data from buffer */
 	return UDR0;
 }
-
 void USART_Transmit(unsigned char data)
 {
 	/* Wait for empty transmit buffer */
