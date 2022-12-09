@@ -21,26 +21,29 @@ void configuracion_inicial();
 #define trigger PORTD6
 #define led PORTD5
 #define buzz PORTD4
-#define sensor_d PORTC0
-#define sensor_i PORTC1
+#define sensor_pres PORTD7
 
 //variables
-
+int var=0;
+int ocr;
 int distancia=0;//mm
 long int t_inicio_obj_on=0;
-int pulso_max=25500;
-int pulso_minimo=500;
-unsigned int contador = 1;//
+long int t_inicio_obj_off=0;
+int abierto=2000;
+int cerrado=1000;
+//unsigned int contador = 1;//
 long int us=0;
 long int t_eco;
+long int t_inicio_eco=0;
 long int t_obj_on=0;
+long int t_obj_off=0;
 long int t_inicio_alarma=0;
 long int t_alarma_on=0;
 char dist_max=20;
-char dist_min=10;
+char dist_min=2;
 char actuar=0;
 char comando_recibido[20];
-char medir_distancia=0;
+char medir_distancia=1;
 char enviar_trigger=1;
 char obj_presente=0;
 char encendido=0;
@@ -75,6 +78,7 @@ char estado_actual_comandos=ADQUIR_STR;
 void sensor_distancia();
 int detectar_objeto();
 void actualizar_t_obj();
+void actualizar_t_obj_off();
 
 //estados_pinza
 void Espera();
@@ -120,7 +124,11 @@ int main(void)
 	void (*vector_estados_comandos[total_estados_comandos])();
 	vector_estados_comandos[ADQUIR_STR]=adquirir_str;
 	vector_estados_comandos[CONF_AT]=conf_at;
+	vector_estados_comandos[COM_ON]=com_on;
+	vector_estados_comandos[COM_OBJ]=com_obj;
+	vector_estados_comandos[COM_FORCE]=com_force;
 	vector_estados_comandos[EV_COMANDO]=ev_comando;
+	vector_estados_comandos[COM_STATE]=com_state;
 	vector_estados_comandos[FORZ_ALARMA]=forz_alarma;
 
 	void (*vector_estados_pinza[total_estados_pinza])();
@@ -139,6 +147,8 @@ int main(void)
 	sei();
 	
     /* Replace with your application code */
+	enviar_texto("hola");
+	sensor_distancia();
     while (1) 
     {
 		vector_estados_pinza[estado_actual_pinza]();
@@ -156,79 +166,122 @@ void Espera(){
 		obj_presente=1;
 		enviar_msg_p_serie(Msg_obj_on);
 	}
+	medir_distancia=1;
 }
 void Obj_on(){
+	medir_distancia=1;
 	if (distancia>dist_max)
 	{
 		obj_presente=0;
-		estado_actual_pinza=ESPERA;//o fail no sé
+		estado_actual_pinza=ESPERA;
+		PORTD=PORTD &~(1<<led);
+		PORTD=PORTD & ~ (1<<buzz);
 		enviar_msg_p_serie(Msg_efect_restart);
 	}else
 	{
 		actualizar_t_obj();
 	}
+	if (obj_presente)
+	{
+		PORTD=PORTD| (1<<led);
+	}
 	if (obj_presente & (4001000>t_obj_on) & (t_obj_on>4000000))
 	{
-		PORTD=PORTD & (1<<buzz);
+		enviar_texto("prende buzz");
+		PORTD=PORTD | (1<<buzz);
 	}
 	if (obj_presente & (5001000>t_obj_on) & (t_obj_on>5000000))
 	{
 		PORTD=PORTD & ~ (1<<buzz);
+		enviar_texto("apaga buzz");
 	}
 	if (obj_presente & (t_obj_on>9000000) & encendido)
 	{
+		medir_distancia=1;
+		enviar_texto("se va a capturar obj");
 		estado_actual_pinza=CAPTURA_OBJ;
 	}
 };
 void Obj_fail(){
-	enviar_msg_p_serie(Msg_obj_fail);
-	estado_actual_pinza=ESPERA;
+	obj_presente=0;
+	PORTD=PORTD &~(1<<led);
+	if (OCR1A<=abierto)
+	{
+		abrir();
+	}else{
+		medir_distancia=1;
+		estado_actual_pinza=EFECT_RESTART;
+	}
 	};
 	
 void Obj_off(){
 	estado_actual_pinza=OBJ_OFF;
 	abrir();
-	if (OCR1A==pulso_minimo)
+	if (OCR1A==abierto)
 	{
 		enviar_msg_p_serie(Msg_obj_released);
+		t_inicio_obj_off=us;
 		estado_actual_pinza=OBJ_RELEASED;
 	}
 	};
+	
 void Obj_mov(){
+	if (distancia>dist_max)
+	{
+		PORTD=PORTD &~(1<<led);
+		estado_actual_pinza=OBJ_RELEASED;
+	}
 	if (soltar_obj)
 	{
-		estado_actual_pinza=OBJ_OFF;
+		estado_actual_pinza=OBJ_RELEASED;
 	}
+	medir_distancia=1;
 	};
+	
 void Obj_cath(){
 	estado_actual_pinza=OBJ_MOV;
 	enviar_msg_p_serie(Msg_obj_mov);
 	};
+	
 void Captura_obj(){
 	if (distancia>dist_max)
 	{
-		obj_presente=0;
-		estado_actual_pinza=OBJ_FAIL;
+		//enviar_msg_p_serie(Msg_obj_fail);
+		soltar_obj=1;
+		estado_actual_pinza=ESPERA;
+		estado_actual_comandos=ADQUIR_STR;
 	}else if (detectar_objeto())
 	{
 		enviar_msg_p_serie(Msg_obj_catch);
+		soltar_obj=0;
 		estado_actual_pinza=OBJ_CATCH;
-	}else{
-		if (actuar>11)
-		{
-			estado_actual_pinza=OBJ_FAIL;
+	}else if(OCR1A==cerrado){
+		enviar_msg_p_serie(Msg_obj_fail);
+		soltar_obj=1;
+		estado_actual_pinza=OBJ_OFF;
+		estado_actual_comandos=ADQUIR_STR;
 		}else{
 			cerrar();
 		}
-	}
 	};
+	
 void Obj_released(){
+	actualizar_t_obj_off();
 	if (distancia>dist_max)
 	{
-		enviar_msg_p_serie(Msg_obj_off);
-		t_obj_on=us;
-		estado_actual_pinza=EFECT_RESTART;
+		if (t_obj_off>9000000)
+		{
+			enviar_msg_p_serie(Msg_efect_restart);
+			t_obj_on=us;
+			estado_actual_pinza=EFECT_RESTART;
+			obj_presente=0;
+		}
+	}else{
+		estado_actual_pinza=OBJ_RELEASED;
+		medir_distancia=1;
 	}
+	
+	
 	};
 void Efect_on(){
 	
@@ -237,6 +290,7 @@ void Efect_restart(){
 	actualizar_t_obj();
 		if (t_obj_on>3000000)
 		{
+			obj_presente=0;
 			estado_actual_pinza=ESPERA;
 		}
 	};
@@ -252,7 +306,8 @@ void adquirir_str(){
 		}
 		comando_recibido[n]='\0';
 		flag=0;
-		estadoActual_maq_str=CONF_AT;
+		estado_actual_comandos=CONF_AT;
+
 	}
 }
 
@@ -260,7 +315,7 @@ void conf_at(){
 	if (comparar_str("AT",comando_recibido,0)){
 		estado_actual_comandos=EV_COMANDO;
 		}else{
-		enviar_msg_p_serie("El comando no es valido");
+		enviar_texto("El comando no es valido");
 		estado_actual_comandos=ADQUIR_STR;
 	}
 }
@@ -277,60 +332,60 @@ void ev_comando(){
 	{
 		estado_actual_comandos=COM_FORCE;
 	}else{
-		enviar_msg_p_serie("El comando no es valido");
+		enviar_texto("El comando no es valido");
 		estado_actual_comandos=ADQUIR_STR;
 	}
 }
 void com_on(){
 	if (comparar_str("1",comando_recibido,6)){
+		enviar_msg_p_serie(Msg_ok_on);
 		encendido=1;
 	}else if (comparar_str("0",comando_recibido,6))
 	{
+		enviar_msg_p_serie(Msg_ok_off);
 		encendido=0;
 	}else{
-	enviar_msg_p_serie("El comando no es valido");
+	enviar_texto("El comando no es valido");
 	}
 	estado_actual_comandos=ADQUIR_STR;
 }
 void com_obj(){
 	if (obj_presente)
 	{
-		enviar_msg_p_serie("1");
+		enviar_texto("1");
 	}else{
-		enviar_msg_p_serie("0");
+		enviar_texto("0");
 	}
 	estado_actual_comandos=ADQUIR_STR;
 }
 void com_state(){
 	if (obj_presente)
 	{
-		if (estado_actual_pinza==EFECT_RESTART)
+		if (estado_actual_pinza==OBJ_RELEASED)
 		{
-			enviar_msg_p_serie("3");
+			enviar_texto("3");
 		}else{
 			if (t_obj_on>4000000)
 			{
-				enviar_msg_p_serie("2");
+				enviar_texto("2");
 			}else{
-				enviar_msg_p_serie("1");
+				enviar_texto("1");
 			}
 		}
 	}else{
-		enviar_msg_p_serie("0");
+		enviar_texto("0");
 	}
+	estado_actual_comandos=ADQUIR_STR;
 }
 void com_force(){
 	if (comparar_str("1",comando_recibido,9))
 	{
-		if (!detectar_objeto() | actuar >11)
-		{
-			cerrar();
-		}else{
-			estado_actual_comandos=ADQUIR_STR;
-		}
+		estado_actual_pinza=CAPTURA_OBJ;
+		estado_actual_comandos=ADQUIR_STR;
 	}else if (comparar_str("2",comando_recibido,9))
 	{
 		soltar_obj=1;
+		estado_actual_pinza=OBJ_OFF;
 		estado_actual_comandos=ADQUIR_STR;
 	}else if (comparar_str("3",comando_recibido,9))
 	{
@@ -341,7 +396,7 @@ void com_force(){
 void forz_alarma(){
 	actualizar_t_alarma_on();
 	if(t_alarma_on<2000000){
-		PORTD=PORTD & (1<<buzz);
+		PORTD=PORTD | (1<<buzz);
 	}else{
 		PORTD=PORTD & ~ (1<<buzz);
 		estado_actual_comandos=ADQUIR_STR;
@@ -353,22 +408,22 @@ void configuracion_inicial(){
 	//fast pwm
 	DDRB |= ( 1<< PORTB1 );  // Configuramos el PB1 como salida.
 	TCNT1 = 0; // Reiniciamos el contador inicial
-	ICR1 = 42999; // Configuramos el periodo de la señal TOP
+	ICR1 = 39999; // Configuramos el periodo de la señal TOP
 
 	TCCR1A =  (1 << COM1A1) | (0 << COM1A0) ; // Ponemos a 'bajo' el OCR1A cuando coincida el Compare Match
 	TCCR1A |=  (1 << WGM11) | (0 << WGM10) ; // Fast PWM: TOP: ICR1
 	TCCR1B = (1 << WGM13) | (1 << WGM12); // // Fast PWM: TOP: ICR1
 	TCCR1B |= (0 << CS12) | (1 << CS11) | ( 0 << CS10 ); // Preesc = 8
 
-	OCR1A = 500; // ancho del pulso
-	
+	OCR1A = abierto; // ancho del pulso
+	//ocr=OCR1A;
 	USART_Init(MYUBRR);
 	//configuracion sensores presión-entradas e interrupcion en pd2
-	DDRC = DDRC &~ (1<<sensor_d) &~ (1<<sensor_i);
+	DDRD = DDRD &~ (1<<sensor_pres);
 	DDRD = DDRD &~ (1<<PORTD2);
 	//configuracion  trigger, led y buzzer
-	PORTD = PORTD | (1<<led);
-	PORTD = PORTD | (1<<buzz);
+	DDRD = PORTD | (1<<led);
+	DDRD = PORTD | (1<<buzz);
 	DDRD = DDRD | (1<<trigger);
 	
 	//configuracion timer 0
@@ -393,40 +448,42 @@ void USART_Init(unsigned int ubrr)
 
 //Funciones
 void abrir(){
-	if (OCR1A>pulso_minimo & !(actuar%10)){
-		OCR1A--;
-		actuar=0;
-	}
-	actuar++;
-}
-void cerrar(){
-	if(OCR1A<pulso_max & !(actuar%10)){
+	if ((OCR1A<abierto) & !(actuar%140)){
 		OCR1A++;
 		actuar=0;
 	}
-	actuar++;
+	//OCR1A=ocr;
+}
+void cerrar(){
+	if((OCR1A>cerrado) & !(actuar%140)){
+		OCR1A--;
+		actuar=0;
+	}
+	//OCR1A=ocr;
 }
 void sensor_distancia(){
+	enviar_texto("midiendo");
 	if (medir_distancia)
 	{
-		t_eco=us-t_eco;
+		t_eco=us-t_inicio_eco;
 		if (t_eco<0)
 		{t_eco=+20000000000;
 		}
+		t_eco=us-t_inicio_eco;
 		distancia=0.1715*t_eco;
 		medir_distancia=0;
 	}
-	if (enviar_trigger)
-	{
-		PORTD=PORTD & (1<<trigger);
-		t_eco=us;
-		enviar_trigger=0;
-		}else{
-		PORTD=PORTD & ~(1<<trigger);
-	}
+	
 }
 int detectar_objeto(){
-	return (PINC & ((1<<sensor_d) | (1<<sensor_i)));
+	return (PIND & (1<<sensor_pres));
+}
+void actualizar_t_obj_off(){
+	t_obj_off=us-t_inicio_obj_off;
+	if (t_obj_off<0)
+	{
+		t_obj_off=+20000000000;
+	}
 }
 void actualizar_t_obj(){
 	t_obj_on=us-t_inicio_obj_on;
@@ -458,24 +515,24 @@ void USART_Transmit(unsigned char data)
 	UDR0 = data;
 }
 void enviar_msg_p_serie(int mensaje){
-	cli();
+	//cli();
 	int i=0;
 	while(mensajes[mensaje][i]!='\0'){
 		USART_Transmit(mensajes[mensaje][i]);
 		i++;
 	}
 	USART_Transmit('\n');
-	sei();
+	//sei();
 };
 void enviar_texto(char text[]){
-	cli();
+	//cli();
 	int n=0;
 	while(text[n]!='\0'){
 		USART_Transmit(text[n]);
 		n++;
 	};
 	USART_Transmit('\n');
-	sei();
+	//sei();
 };
 
 //interrupciones
@@ -493,17 +550,34 @@ ISR (USART_RX_vect)
 			flag = 1;
 		}
 	}
+	
 }
-ISR (TIMER0_OVF_vect)//10us
+ISR (TIMER0_OVF_vect)//100us
 {
-	TCNT0=239;
-	us+=10;
+	PORTD=PORTD & ~(1<<trigger);//apaga trigger
+	TCNT0=60;
+	var++;
+	if ((var>100))
+	{
+			t_inicio_eco=us;
+			PORTD=PORTD | (1<<trigger);//prende tigger
+			TCNT0=237;
+			us+=10;
+			var=0;
+		
+	}else{
+		us+=100;
+	}
 	if (us>20000000000){
-		us=0;
+			us=0;
+		}
+	actuar++;
+	if (actuar>150)
+	{actuar=0;
 	}
 };
 ISR (INT0_vect){
-	medir_distancia=1;
-	enviar_trigger=1;
-	sensor_distancia();
+	//medir_distancia=1;
+	t_eco=(us/10)-(t_inicio_eco/10);
+	distancia=0.1715*t_eco;
 }
