@@ -10,7 +10,7 @@
 #include "comunicacion_serial.h"
 #include "funciones_str.h"
 
-#define FOSC 16000000 // Clock Speed
+#define FOSC 16000000 
 #define BAUD 9600
 #define MYUBRR FOSC/16/BAUD-1
 
@@ -25,11 +25,10 @@ void configuracion_inicial();
 
 //variables
 int var=0;
-int ocr;
 int distancia=0;//mm
 long int t_inicio_obj_on=0;
 long int t_inicio_obj_off=0;
-int abierto=2000;
+int abierto=1900;
 int cerrado=1000;
 //unsigned int contador = 1;//
 long int us=0;
@@ -48,7 +47,7 @@ char enviar_trigger=1;
 char obj_presente=0;
 char encendido=0;
 char soltar_obj=0;
-
+char forzar_cerarr=0;
 volatile unsigned char received_data;
 volatile int flag = 0;
 unsigned char str[20];
@@ -145,9 +144,6 @@ int main(void)
 	
 	configuracion_inicial();
 	sei();
-	
-    /* Replace with your application code */
-	enviar_texto("hola");
 	sensor_distancia();
     while (1) 
     {
@@ -198,7 +194,6 @@ void Obj_on(){
 	if (obj_presente & (t_obj_on>9000000) & encendido)
 	{
 		medir_distancia=1;
-		enviar_texto("se va a capturar obj");
 		estado_actual_pinza=CAPTURA_OBJ;
 	}
 };
@@ -210,7 +205,9 @@ void Obj_fail(){
 		abrir();
 	}else{
 		medir_distancia=1;
+		t_obj_on=us;
 		estado_actual_pinza=EFECT_RESTART;
+		obj_presente=0;
 	}
 	};
 	
@@ -229,7 +226,8 @@ void Obj_mov(){
 	if (distancia>dist_max)
 	{
 		PORTD=PORTD &~(1<<led);
-		estado_actual_pinza=OBJ_RELEASED;
+		enviar_msg_p_serie(Msg_obj_fail);
+		estado_actual_pinza=OBJ_FAIL;
 	}
 	if (soltar_obj)
 	{
@@ -244,9 +242,9 @@ void Obj_cath(){
 	};
 	
 void Captura_obj(){
-	if (distancia>dist_max)
+	
+	if ((distancia>dist_max))
 	{
-		//enviar_msg_p_serie(Msg_obj_fail);
 		soltar_obj=1;
 		estado_actual_pinza=ESPERA;
 		estado_actual_comandos=ADQUIR_STR;
@@ -283,9 +281,7 @@ void Obj_released(){
 	
 	
 	};
-void Efect_on(){
-	
-	};
+
 void Efect_restart(){
 	actualizar_t_obj();
 		if (t_obj_on>3000000)
@@ -298,7 +294,6 @@ void Efect_restart(){
 //estados maquina mensajes
 void adquirir_str(){
 	if(flag){
-		//quizas sería bueno desactivar las interrupciones cuadno se ejecute esta parte de la funcion
 		int n=0;
 		while( str[n]!='\0'){
 			comando_recibido[n]=str[n];
@@ -380,7 +375,7 @@ void com_state(){
 void com_force(){
 	if (comparar_str("1",comando_recibido,9))
 	{
-		estado_actual_pinza=CAPTURA_OBJ;
+		forzar_cerarr=1;
 		estado_actual_comandos=ADQUIR_STR;
 	}else if (comparar_str("2",comando_recibido,9))
 	{
@@ -415,8 +410,8 @@ void configuracion_inicial(){
 	TCCR1B = (1 << WGM13) | (1 << WGM12); // // Fast PWM: TOP: ICR1
 	TCCR1B |= (0 << CS12) | (1 << CS11) | ( 0 << CS10 ); // Preesc = 8
 
-	OCR1A = abierto; // ancho del pulso
-	//ocr=OCR1A;
+	OCR1A = abierto; // ancho del pulso al inicio
+
 	USART_Init(MYUBRR);
 	//configuracion sensores presión-entradas e interrupcion en pd2
 	DDRD = DDRD &~ (1<<sensor_pres);
@@ -448,21 +443,18 @@ void USART_Init(unsigned int ubrr)
 
 //Funciones
 void abrir(){
-	if ((OCR1A<abierto) & !(actuar%140)){
+	if ((OCR1A<=abierto) & !(actuar%140)){
 		OCR1A++;
 		actuar=0;
 	}
-	//OCR1A=ocr;
 }
 void cerrar(){
-	if((OCR1A>cerrado) & !(actuar%140)){
+	if((OCR1A>=cerrado) & !(actuar%140)){
 		OCR1A--;
 		actuar=0;
 	}
-	//OCR1A=ocr;
 }
 void sensor_distancia(){
-	enviar_texto("midiendo");
 	if (medir_distancia)
 	{
 		t_eco=us-t_inicio_eco;
@@ -501,38 +493,32 @@ void actualizar_t_alarma_on(){
 }
 unsigned char USART_Receive(void)
 {
-	/* Wait for data to be received */
 	while (!(UCSR0A & (1<<RXC0)));
-	/* Get and return received data from buffer */
 	return UDR0;
 }
 void USART_Transmit(unsigned char data)
 {
-	/* Wait for empty transmit buffer */
 	while (!(UCSR0A & (1<<UDRE0)))
 	;
-	/* Put data into buffer, sends the data */
 	UDR0 = data;
 }
 void enviar_msg_p_serie(int mensaje){
-	//cli();
+	
 	int i=0;
 	while(mensajes[mensaje][i]!='\0'){
 		USART_Transmit(mensajes[mensaje][i]);
 		i++;
 	}
 	USART_Transmit('\n');
-	//sei();
+
 };
 void enviar_texto(char text[]){
-	//cli();
 	int n=0;
 	while(text[n]!='\0'){
 		USART_Transmit(text[n]);
 		n++;
 	};
 	USART_Transmit('\n');
-	//sei();
 };
 
 //interrupciones
@@ -561,7 +547,7 @@ ISR (TIMER0_OVF_vect)//100us
 	{
 			t_inicio_eco=us;
 			PORTD=PORTD | (1<<trigger);//prende tigger
-			TCNT0=237;
+			TCNT0=237;//10us
 			us+=10;
 			var=0;
 		
@@ -577,7 +563,6 @@ ISR (TIMER0_OVF_vect)//100us
 	}
 };
 ISR (INT0_vect){
-	//medir_distancia=1;
 	t_eco=(us/10)-(t_inicio_eco/10);
 	distancia=0.1715*t_eco;
 }
